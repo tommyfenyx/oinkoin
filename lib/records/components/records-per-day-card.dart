@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:piggybank/helpers/datetime-utility-functions.dart';
+import 'package:piggybank/helpers/tartessos_calendar.dart';
 import 'package:piggybank/helpers/records-utility-functions.dart';
 import 'package:piggybank/models/record.dart';
 import 'package:piggybank/models/records-per-day.dart';
@@ -393,7 +394,10 @@ class _RecordsPerDayCardState extends State<RecordsPerDayCard>
                     Row(
                       children: [
                         Text(
-                          widget._movementDay.dateTime!.day.toString(),
+                          // Día tartésico (no gregoriano) — Fase 1
+                          TartessosDate(widget._movementDay.dateTime!)
+                              .day
+                              .toString(),
                           style: TextStyle(
                               fontSize: 18, fontWeight: FontWeight.bold),
                         ),
