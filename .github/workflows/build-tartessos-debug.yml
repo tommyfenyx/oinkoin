@@ -49,10 +49,10 @@ jobs:
           git submodule update --init --recursive
           cd submodules/flutter
           git reset --merge
+          git fetch origin
           git checkout stable
           git pull origin stable
           cd ../..
-
       - name: flutter pub get
         run: submodules/flutter/bin/flutter pub get
 
