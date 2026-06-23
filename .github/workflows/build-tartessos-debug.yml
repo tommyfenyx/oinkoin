@@ -45,13 +45,13 @@ jobs:
       # submodules/flutter. Lo actualizamos al canal estable para no
       # depender de instalar el SDK por separado.
       - name: Actualizar submódulo de Flutter a stable
-          run: |
-            git submodule update --init --recursive
-            cd submodules/flutter
-            git reset --merge
-            git fetch origin
-            git checkout origin/stable || git checkout origin/main
-            cd ../..
+        run: |
+          git submodule update --init --recursive
+          cd submodules/flutter
+          git fetch origin
+          git checkout -f origin/stable || git checkout -f origin/main || git checkout -f origin/master
+          cd ../..
+
       - name: flutter pub get
         run: submodules/flutter/bin/flutter pub get
 
