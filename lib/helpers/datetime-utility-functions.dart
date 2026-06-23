@@ -1,8 +1,6 @@
-import 'dart:ui';
-
 import 'package:i18n_extension/i18n_extension.dart';
-import 'package:intl/intl.dart';
 import 'package:piggybank/i18n.dart';
+import 'package:piggybank/helpers/tartessos_calendar.dart';
 import 'package:piggybank/services/service-config.dart';
 import 'package:piggybank/settings/constants/homepage-time-interval.dart';
 import 'package:piggybank/settings/constants/preferences-keys.dart';
@@ -10,6 +8,21 @@ import 'package:piggybank/settings/preferences-utils.dart';
 import 'package:piggybank/statistics/statistics-models.dart';
 import 'package:piggybank/utils/constants.dart';
 import 'package:timezone/timezone.dart' as tz;
+
+// ─────────────────────────────────────────────────────────────────────────
+// CALENDARIO TARTÉSICO — Fase 1 (capa de presentación)
+// ─────────────────────────────────────────────────────────────────────────
+// Las funciones de este archivo que generan TEXTO VISIBLE para el usuario
+// (getMonthStr, getYearStr, getDateRangeStr, getDateStr, extractMonthString,
+// extractYearString, extractWeekdayString) ahora muestran la fecha en el
+// calendario tartésico en vez del gregoriano.
+//
+// Las funciones que calculan LÍMITES/AGRUPACIONES (getStartOfWeek,
+// getEndOfWeek, calculateMonthCycle, calculateInterval, isFullMonth,
+// isFullWeek, isFullYear) se mantienen 100% gregorianas — es una decisión
+// deliberada de Fase 1: cambiar solo lo que se muestra, no cómo se agrupan
+// ni se calculan los gastos. La Fase 2 (agrupar por semana de 6 días /
+// meses tartésicos) queda para más adelante.
 
 
 DateTime addDuration(DateTime start, Duration duration) {
@@ -33,43 +46,40 @@ DateTime getEndOfMonth(int year, int month) {
 }
 
 String getDateRangeStr(DateTime start, DateTime end) {
-  /// Returns a string representing the range from earliest to latest date
-  Locale myLocale = I18n.locale;
-
+  /// Returns a string representing the range from earliest to latest date,
+  /// in the Tartessian calendar.
   // Ensure earlier date goes to left, latest to right
   DateTime earlier = start.isBefore(end) ? start : end;
   DateTime later = start.isBefore(end) ? end : start;
 
   DateTime lastDayOfTheMonth = getEndOfMonth(earlier.year, earlier.month);
   if (earlier.day == 1 && lastDayOfTheMonth.isAtSameMomentAs(later)) {
-    // Visualizing an entire month (starts on 1st and ends on last day)
-    String localeRepr =
-        DateFormat.yMMMM(myLocale.languageCode).format(lastDayOfTheMonth);
-    return localeRepr[0].toUpperCase() + localeRepr.substring(1); // capitalize
+    // Visualizing an entire (Gregorian-bounded) month: show it as a
+    // Tartessian month/year header, e.g. "Tir de 1405".
+    return getMonthStr(lastDayOfTheMonth);
+  }
+
+  final tEarlier = TartessosDate(earlier);
+  final tLater = TartessosDate(later);
+  if (tEarlier.year == tLater.year) {
+    // Same Tartessian year: show year only once, at the end
+    return '${tEarlier.day} ${tEarlier.monthName} - ${tLater.day} ${tLater.monthName} ${tLater.year}';
   } else {
-    if (earlier.year == later.year) {
-      // Same year: show year only once at the end
-      String startLocalRepr = DateFormat.MMMd(myLocale.languageCode).format(earlier);
-      String endLocalRepr = DateFormat.yMMMd(myLocale.languageCode).format(later);
-      return startLocalRepr + " - " + endLocalRepr;
-    } else {
-      // Different years: show year for both dates
-      String startLocalRepr = DateFormat.yMMMd(myLocale.languageCode).format(earlier);
-      String endLocalRepr = DateFormat.yMMMd(myLocale.languageCode).format(later);
-      return startLocalRepr + " - " + endLocalRepr;
-    }
+    // Different Tartessian years: show year for both dates
+    return '${tEarlier.day} ${tEarlier.monthName} ${tEarlier.year} - ${tLater.day} ${tLater.monthName} ${tLater.year}';
   }
 }
 
 String getMonthStr(DateTime dateTime) {
-  /// Returns the header string identifying the current visualised month.
-  Locale myLocale = I18n.locale;
-  String localeRepr = DateFormat.yMMMM(myLocale.languageCode).format(dateTime);
-  return localeRepr[0].toUpperCase() + localeRepr.substring(1); // capitalize
+  /// Returns the header string identifying the current visualised month,
+  /// en el calendario tartésico (p.ej. "Tir de 1405").
+  final t = TartessosDate(dateTime);
+  return '${t.monthName} de ${t.year}';
 }
 
 String getYearStr(DateTime dateTime) {
-  return "${"Year".i18n} ${dateTime.year}";
+  final t = TartessosDate(dateTime);
+  return "${"Year".i18n} ${t.year}";
 }
 
 String getWeekStr(DateTime dateTime) {
@@ -150,59 +160,53 @@ DateTime getEndOfWeek(DateTime date) {
 
 
 String getDateStr(DateTime? dateTime, {AggregationMethod? aggregationMethod, bool shortYear = false}) {
-  Locale myLocale = I18n.locale;
   if (aggregationMethod != null) {
     if (aggregationMethod == AggregationMethod.WEEK) {
-      // Format as week interval (e.g., "1-7", "8-14")
-      int startDay = dateTime!.day;
+      // Format as week interval using Tartessian day numbers (e.g. "1-7").
+      // El límite "no pasar del mes" sigue siendo gregoriano a propósito:
+      // es solo una etiqueta sobre un bucket que YA se calculó en
+      // gregoriano en otro sitio (statistics-calculator.dart); aquí solo
+      // cambiamos cómo se MUESTRA ese rango, no qué días agrupa.
+      final tdStart = TartessosDate(dateTime!);
       DateTime weekEnd = dateTime.add(Duration(days: 6));
-      // Make sure we don't go beyond the current month
       if (weekEnd.month != dateTime.month) {
         weekEnd = DateTime(dateTime.year, dateTime.month + 1, 0); // Last day of month
       }
-      int endDay = weekEnd.day;
-      return '$startDay-$endDay';
+      final tdEnd = TartessosDate(weekEnd);
+      return '${tdStart.day}-${tdEnd.day}';
     }
     if (aggregationMethod == AggregationMethod.MONTH) {
-      return DateFormat.yM(myLocale.toString()).format(dateTime!);
+      final t = TartessosDate(dateTime!);
+      return '${t.month}/${t.year}';
     }
     if (aggregationMethod == AggregationMethod.YEAR) {
-      return DateFormat.y(myLocale.toString()).format(dateTime!);
+      return TartessosDate(dateTime!).year.toString();
     }
   }
 
-  // Check for user preference
-  if (ServiceConfig.sharedPreferences != null) {
-    String? dateFormatPref = PreferencesUtils.getOrDefault<String>(
-        ServiceConfig.sharedPreferences!, PreferencesKeys.dateFormat);
-
-    if (dateFormatPref != null && dateFormatPref != "system" && dateFormatPref.isNotEmpty) {
-      final pattern = shortYear ? dateFormatPref.replaceAll('yyyy', 'yy') : dateFormatPref;
-      return DateFormat(pattern, myLocale.toString()).format(dateTime!);
-    }
-  }
-
-  final baseFormat = DateFormat.yMd(myLocale.toString());
-  if (shortYear) {
-    final shortPattern = baseFormat.pattern!.replaceAll('yyyy', 'yy').replaceAll(RegExp(r'(?<!y)y(?!y)'), 'yy');
-    return DateFormat(shortPattern, myLocale.toString()).format(dateTime!);
-  }
-  return baseFormat.format(dateTime!);
+  // NOTA: la preferencia de usuario "dateFormat" (patrones tipo dd/MM/yyyy)
+  // es un patrón pensado para el calendario gregoriano y no se traduce
+  // directamente a meses/semanas tartésicas, así que en Fase 1 se ignora
+  // a propósito aquí y se usa siempre un formato tartésico fijo y legible.
+  // (Si en el futuro queréis patrones tartésicos personalizables, habría
+  // que definir tokens propios — por ahora queda fuera de alcance.)
+  final t = TartessosDate(dateTime!);
+  final yearStr = shortYear
+      ? (t.year % 100).toString().padLeft(2, '0')
+      : t.year.toString();
+  return '${t.day} ${t.monthName} $yearStr';
 }
 
 String extractMonthString(DateTime dateTime) {
-  Locale myLocale = I18n.locale;
-  return DateFormat.MMMM(myLocale.languageCode).format(dateTime);
+  return TartessosDate(dateTime).monthName;
 }
 
 String extractYearString(DateTime dateTime) {
-  Locale myLocale = I18n.locale;
-  return new DateFormat.y(myLocale.languageCode).format(dateTime);
+  return TartessosDate(dateTime).year.toString();
 }
 
 String extractWeekdayString(DateTime dateTime) {
-  Locale myLocale = I18n.locale;
-  return DateFormat.EEEE(myLocale.languageCode).format(dateTime);
+  return TartessosDate(dateTime).weekday.name;
 }
 
 bool isFullMonth(DateTime from, DateTime to) {
