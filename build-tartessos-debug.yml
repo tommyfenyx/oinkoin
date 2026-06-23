@@ -1,0 +1,66 @@
+# build-tartessos-debug.yml
+# ==========================
+# Compila un APK de DEBUG de tu fork de Oinkoin (Tartessos Edition) en la
+# nube, sin necesitar Flutter, Android Studio ni claves de firma instaladas
+# en tu equipo.
+#
+# Por qué "debug" y no "release":
+#   El build "release" del repo original exige un keystore de firma
+#   (secrets.ANDROID_KEY_BASE64 etc.) que no tenemos ni necesitamos para
+#   uso personal. El build "debug" usa la clave de depuración automática
+#   de Android y se instala perfectamente en tu propio móvil.
+#
+# Cómo usarlo:
+#   1. Copia este archivo a la ruta `.github/workflows/build-tartessos-debug.yml`
+#      dentro de TU FORK (no en el repo original).
+#   2. En GitHub, ve a la pestaña "Actions" de tu fork.
+#   3. Selecciona "Build Tartessos APK (debug)" en la lista de la izquierda.
+#   4. Pulsa el botón "Run workflow" (puede que tengas que habilitar
+#      Actions la primera vez, GitHub te lo pedirá con un botón verde).
+#   5. Espera a que termine (~5-10 min). Entra al run finalizado y baja
+#      hasta "Artifacts" → descarga el .zip → dentro está el .apk.
+#   6. Pásalo a tu móvil Android e instálalo (activa "instalar de
+#      orígenes desconocidos" si te lo pide).
+name: Build Tartessos APK (debug)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build debug APK (sin firma)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # El repo trae Flutter vendido como submódulo de git en
+      # submodules/flutter. Lo actualizamos al canal estable para no
+      # depender de instalar el SDK por separado.
+      - name: Actualizar submódulo de Flutter a stable
+        run: |
+          git submodule update --init --recursive
+          cd submodules/flutter
+          git reset --merge
+          git checkout stable
+          git pull origin stable
+          cd ../..
+
+      - name: flutter pub get
+        run: submodules/flutter/bin/flutter pub get
+
+      - name: Compilar APK debug (flavor "free", sin necesitar firma)
+        run: submodules/flutter/bin/flutter build apk --debug --flavor free
+
+      - name: Subir APK como artefacto descargable
+        uses: actions/upload-artifact@v4
+        with:
+          name: oinkoin-tartessos-debug-apk
+          path: build/app/outputs/flutter-apk/app-free-debug.apk
