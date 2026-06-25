@@ -30,6 +30,16 @@ jobs:
   build:
     name: Build debug APK (sin firma)
     runs-on: ubuntu-latest
+    env:
+      # El build.gradle del proyecto evalúa el signingConfig "release" al
+      # arrancar Gradle, AUNQUE solo compilemos "debug" (es como está
+      # escrito el build.gradle original, no es cosa nuestra). Si no existe
+      # key.properties, intenta leer esta variable de entorno con
+      # file(System.env.X_KEYSTORE_PATH); si está vacía, Gradle falla con
+      # "path may not be null or empty string". No hace falta que sea un
+      # keystore real — el build debug nunca llega a usarlo, solo necesita
+      # que la variable no esté vacía para que la evaluación no reviente.
+      X_KEYSTORE_PATH: dummy-keystore.jks
 
     steps:
       - uses: actions/checkout@v4
