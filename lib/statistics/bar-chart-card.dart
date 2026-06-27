@@ -184,23 +184,7 @@ class _BarChartCardState extends State<BarChartCard> {
   /// Generates a data key that matches the tick labels exactly.
   String _generateDataKey(
       DateTime date, DateTime rangeStart, DateTime rangeEnd) {
-    String key;
-    if (widget.aggregationMethod == AggregationMethod.WEEK) {
-      key = _getWeekLabel(date);
-    } else if (widget.aggregationMethod == AggregationMethod.DAY) {
-      // For DAY aggregation, match the tick generation logic:
-      // Only show month at the start of a month (day 1)
-      // Example: 30 March to 3 April -> "30 31 1/4 2 3"
-      final bool isMonthStart = date.day == 1;
-
-      key = isMonthStart ? "${date.month}/${date.day}" : "${date.day}";
-    } else {
-      // For MONTH and YEAR, use the formatter
-      key = widget.aggregationMethod == AggregationMethod.MONTH
-          ? "${date.month}"
-          : "${date.year}";
-    }
-    return key;
+    return tartessosChartLabel(date, widget.aggregationMethod!);
   }
 
   List<charts.Series<StringSeriesRecord, String>> _createSeriesList() {
@@ -230,18 +214,6 @@ class _BarChartCardState extends State<BarChartCard> {
         data: _chartData,
       )
     ];
-  }
-
-  String _getWeekLabel(DateTime date) {
-    // Get the start of the week and calculate the end day
-    int startDay = date.day;
-    DateTime weekEnd = date.add(Duration(days: 6));
-    // Make sure we don't go beyond the current month
-    if (weekEnd.month != date.month) {
-      weekEnd = DateTime(date.year, date.month + 1, 0); // Last day of month
-    }
-    int endDay = weekEnd.day;
-    return '$startDay-$endDay';
   }
 
   bool animate = true;
