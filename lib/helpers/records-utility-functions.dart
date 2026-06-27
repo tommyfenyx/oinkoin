@@ -17,6 +17,7 @@ import 'package:piggybank/settings/constants/preferences-keys.dart';
 import 'package:piggybank/settings/preferences-utils.dart';
 
 import 'datetime-utility-functions.dart';
+import 'tartessos_calendar.dart';
 import 'package:piggybank/models/category-type.dart';
 
 List<RecordsPerDay> groupRecordsByDay(List<Record?> records) {
@@ -329,9 +330,10 @@ int getHomepageRecordsMonthStartDay() {
       PreferencesKeys.homepageRecordsMonthStartDay)!;
 }
 
-// 'MMMd' provides the localized month name and day (e.g., "Jan 15")
+// Versión tartésica corta: día + nombre de mes, sin año (p.ej. "23 Tir")
 String getShortDateStr(DateTime date) {
-  return DateFormat.MMMd().format(date);
+  final t = TartessosDate(date);
+  return '${t.day} ${t.monthName}';
 }
 
 String getHeaderFromHomepageTimeInterval(HomepageTimeInterval timeInterval) {
