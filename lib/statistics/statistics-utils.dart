@@ -4,9 +4,52 @@ import 'dart:ui';
 import "package:collection/collection.dart";
 import 'package:intl/intl.dart';
 import 'package:piggybank/helpers/datetime-utility-functions.dart';
+import 'package:piggybank/helpers/tartessos_calendar.dart';
 import 'package:piggybank/models/category.dart';
 import 'package:piggybank/models/record.dart';
 import 'package:piggybank/statistics/statistics-models.dart';
+
+/// Genera la etiqueta/clave tartésica para un punto de las gráficas de
+/// estadísticas y balance.
+///
+/// CRÍTICO: el texto que devuelve esta función se usa A LA VEZ como:
+///   (a) la CLAVE que identifica a qué barra/punto pertenece un importe
+///       (ChartDateRangeConfig.getKey, bar-chart-card._generateDataKey,
+///       balance-chart-models ComparisonDataAggregator), y
+///   (b) el TEXTO visible bajo cada barra en el eje (ChartTickGenerator).
+/// Ambos deben coincidir carácter a carácter o las barras dejan de
+/// alinearse con sus etiquetas. Por eso está centralizada aquí en una
+/// única función en vez de repetida en varios sitios (como estaba en el
+/// código original gregoriano, con la lógica duplicada en 3 archivos).
+///
+/// Comprobado sin colisiones de clave en 131 años (1970-2100) para
+/// agregación por mes y por semana — ver auditoría previa a este cambio.
+/// Limitación cosmética conocida: ~2 semanas al año, justo en el cambio
+/// de año tartésico (hacia el 20 de marzo), el rango de días de una
+/// semana puede mostrarse como "26-2" en vez de un rango más intuitivo.
+/// Es solo visual, no afecta a qué importes se suman en cada barra.
+String tartessosChartLabel(DateTime date, AggregationMethod aggregationMethod) {
+  switch (aggregationMethod) {
+    case AggregationMethod.WEEK:
+      final tdStart = TartessosDate(date);
+      DateTime weekEnd = date.add(Duration(days: 6));
+      if (weekEnd.month != date.month) {
+        weekEnd = DateTime(date.year, date.month + 1, 0); // Last day of month
+      }
+      final tdEnd = TartessosDate(weekEnd);
+      return '${tdStart.day}-${tdEnd.day}';
+    case AggregationMethod.DAY:
+      final t = TartessosDate(date);
+      final bool isMonthStart = t.day == 1;
+      return isMonthStart ? '${t.month}/${t.day}' : '${t.day}';
+    case AggregationMethod.MONTH:
+      return '${TartessosDate(date).month}';
+    case AggregationMethod.YEAR:
+      return '${TartessosDate(date).year}';
+    default:
+      return '${TartessosDate(date).day}';
+  }
+}
 
 double computeNumberOfMonthsBetweenTwoDates(DateTime from, DateTime to) {
   var apprxSizeOfMonth = 30;
@@ -298,12 +341,13 @@ class ChartDateRangeConfig {
         // Truncate dates to midnight to ensure full day ranges
         final startDate = DateTime(from!.year, from.month, from.day);
         final endDate = DateTime(to!.year, to.month, to.day);
+        final ts = TartessosDate(startDate);
+        final te = TartessosDate(endDate);
         return ChartDateRangeConfig._(
           formatter: DateFormat("dd"),
           start: startDate,
           end: endDate,
-          scopeLabel:
-              "${startDate.month}/${startDate.day}-${endDate.month}/${endDate.day}",
+          scopeLabel: "${ts.month}/${ts.day}-${te.month}/${te.day}",
           aggregationMethod: method,
         );
 
@@ -311,34 +355,39 @@ class ChartDateRangeConfig {
         final startDate = DateTime(from!.year, from.month);
         final endDate = DateTime(
             from.year, from.month + 1, 0, 23, 59, 59); // Last day of month
+        final t = TartessosDate(startDate);
         return ChartDateRangeConfig._(
           formatter: DateFormat("'W'w"),
           start: startDate,
           end: endDate,
-          scopeLabel: DateFormat("yyyy/MM").format(startDate),
+          scopeLabel: "${t.year}/${t.month}",
           aggregationMethod: method,
         );
 
       case AggregationMethod.MONTH:
+        final DateTime fromDate = from!;
+        final DateTime toDate = to!;
         final endDate =
-            DateTime(to!.year, 12, 31, 23, 59, 59); // Last day of December
+            DateTime(toDate.year, 12, 31, 23, 59, 59); // Last day of December
         return ChartDateRangeConfig._(
           formatter: DateFormat("MM"),
-          start: DateTime(from!.year),
+          start: DateTime(fromDate.year),
           end: endDate,
-          scopeLabel: DateFormat("yyyy").format(from),
+          scopeLabel: "${TartessosDate(fromDate).year}",
           aggregationMethod: method,
         );
 
       case AggregationMethod.YEAR:
-        final endDate =
-            DateTime(to!.year, 12, 31, 23, 59, 59); // Last day of last year
+        final DateTime fromDate2 = from!;
+        final DateTime toDate2 = to!;
+        final endDate2 = DateTime(
+            toDate2.year, 12, 31, 23, 59, 59); // Last day of last year
         return ChartDateRangeConfig._(
           formatter: DateFormat("yyyy"),
-          start: DateTime(from!.year),
-          end: endDate,
+          start: DateTime(fromDate2.year),
+          end: endDate2,
           scopeLabel:
-              "${DateFormat("yyyy").format(from)} - ${DateFormat("yyyy").format(to)}",
+              "${TartessosDate(fromDate2).year} - ${TartessosDate(toDate2).year}",
           aggregationMethod: method,
         );
 
@@ -348,24 +397,10 @@ class ChartDateRangeConfig {
   }
 
   /// Generates a key for a given date based on the aggregation method.
-  /// Used for data aggregation and lookup.
-  /// For DAY aggregation, this matches the tick label format exactly.
+  /// Used for data aggregation and lookup AND para el texto del tick del
+  /// eje — ver tartessosChartLabel() para por qué están unificados.
   String getKey(DateTime date) {
-    if (aggregationMethod == AggregationMethod.WEEK) {
-      return _getWeekLabel(date);
-    } else if (aggregationMethod == AggregationMethod.DAY) {
-      // For DAY aggregation, match the tick generation logic:
-      // Only show month at the start of a month (day 1)
-      // Example: 30 March to 3 April -> "30 31 1/4 2 3"
-      final bool isMonthStart = date.day == 1;
-
-      if (isMonthStart) {
-        return "${date.month}/${date.day}";
-      } else {
-        return "${date.day}";
-      }
-    }
-    return formatter.format(date).replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    return tartessosChartLabel(date, aggregationMethod);
   }
 
   /// Advances a date by one period based on the aggregation method.
@@ -384,16 +419,6 @@ class ChartDateRangeConfig {
     }
   }
 
-  /// Gets the label for a week range (e.g., "1-7" or "25-31").
-  static String _getWeekLabel(DateTime date) {
-    final startDay = date.day;
-    var weekEnd = date.add(Duration(days: 6));
-    if (weekEnd.month != date.month) {
-      weekEnd = DateTime(date.year, date.month + 1, 0);
-    }
-    final endDay = weekEnd.day;
-    return '$startDay-$endDay';
-  }
 }
 
 /// Generates tick labels for chart axes.
@@ -409,20 +434,12 @@ class ChartTickGenerator {
     DateTime current = start;
 
     while (!current.isAfter(end)) {
-      final bool isMonthStart = current.day == 1;
-      // Only show month at the start of a month (day 1)
-      // Example: 30 March to 3 April -> "30 31 1/4 2 3"
-
-      final String label =
-          isMonthStart ? "${current.month}/${current.day}" : "${current.day}";
-
-      ticks.add(label);
+      ticks.add(tartessosChartLabel(current, AggregationMethod.DAY));
       current = current.add(Duration(days: jump));
     }
 
     // Ensure end date is always shown
-    final String endLabel =
-        end.day == 1 ? "${end.month}/${end.day}" : "${end.day}";
+    final String endLabel = tartessosChartLabel(end, AggregationMethod.DAY);
     if (ticks.last != endLabel) {
       ticks.add(endLabel);
     }
@@ -460,11 +477,7 @@ class ChartTickGenerator {
     final List<String> ticks = [];
     DateTime current = start;
     while (!current.isAfter(end)) {
-      final weekEnd = current.add(Duration(days: 6));
-      final endDay = weekEnd.month != current.month
-          ? DateTime(current.year, current.month + 1, 0).day
-          : weekEnd.day;
-      ticks.add("${current.day}-$endDay");
+      ticks.add(tartessosChartLabel(current, AggregationMethod.WEEK));
       current = current.add(Duration(days: 7));
     }
     return ticks;
@@ -474,7 +487,7 @@ class ChartTickGenerator {
     final List<String> ticks = [];
     DateTime current = start;
     while (!current.isAfter(end)) {
-      ticks.add("${current.month}");
+      ticks.add(tartessosChartLabel(current, AggregationMethod.MONTH));
       current = DateTime(current.year, current.month + 1);
     }
     return ticks;
@@ -484,7 +497,7 @@ class ChartTickGenerator {
     final List<String> ticks = [];
     DateTime current = start;
     while (!current.isAfter(end)) {
-      ticks.add("${current.year}");
+      ticks.add(tartessosChartLabel(current, AggregationMethod.YEAR));
       current = DateTime(current.year + 1);
     }
     return ticks;
